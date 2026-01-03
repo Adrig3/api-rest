@@ -10,6 +10,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+
 class Customer(db.Model):
     __tablename__ = 'customer'
 
@@ -23,21 +24,23 @@ class Customer(db.Model):
     create_date = db.Column(db.DateTime)
     last_update = db.Column(db.DateTime)
 
+
 class Rental(db.Model):
     __tablename__ = 'rental'
 
     rental_id = db.Column(db.Integer, primary_key=True)
-    rental_date = db.Column(db.DateTime)
-    inventory_id = db.Column(db.Integer)
-    customer_id = db.Column(db.Integer)
-    return_date = db.Column(db.DateTime)
-    staff_id = db.Column(db.Integer)
-    last_update = db.Column(db.DateTime)
+    rental_date = db.Column(db.DateTime, nullable=False)
+    inventory_id = db.Column(db.Integer, nullable=False)
+    customer_id = db.Column(db.Integer, nullable=False)
+    return_date = db.Column(db.DateTime, nullable=True)
+    staff_id = db.Column(db.Integer, nullable=False)
+    last_update = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.now,
+        onupdate=datetime.now
+    )
 
-
-
-
-    
 
 # endpoint 1
 @app.route('/api/v1/customers', methods=['POST'])
@@ -67,13 +70,11 @@ def create_customer():
 
 
 # endpoint 2
-from flask import request, jsonify
-
 @app.route('/api/v1/customers', methods=['GET'])
 def get_customers():
     try:
         # Parámetros de paginación
-        limit = request.args.get('limit', default=50, type=int)   # por defecto 50
+        limit = request.args.get('limit', default=700, type=int)   # por defecto 50
         offset = request.args.get('offset', default=0, type=int)
 
         # Parámetros de filtrado opcionales
@@ -159,11 +160,9 @@ def get_customer(customer_id):
             "status": "error",
             "message": str(e)
         }), 500
-    
-# endpoint 4
-from datetime import datetime
-from flask import request, jsonify
 
+
+# endpoint 4
 @app.route('/api/v1/customers/<int:customer_id>', methods=['PUT'])
 def update_customer(customer_id):
     try:
@@ -206,8 +205,6 @@ def update_customer(customer_id):
 
 
 # endpoint 5
-from flask import jsonify
-
 @app.route('/api/v1/customers/<int:customer_id>', methods=['DELETE'])
 def delete_customer(customer_id):
     try:
@@ -235,9 +232,167 @@ def delete_customer(customer_id):
         }), 500
 
 
+# endpoint 6
+@app.route('/api/v1/rentals', methods=['POST'])
+def create_rental():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "JSON requerido"}), 400
+
+        rental = Rental(
+            rental_date=datetime.now(),
+            inventory_id=data.get('inventory_id'),
+            customer_id=data.get('customer_id'),
+            staff_id=data.get('staff_id'),
+            return_date=None,
+            last_update=datetime.now()
+        )
+
+        db.session.add(rental)
+        db.session.commit()
+
+        return jsonify({
+            "status": "ok",
+            "message": "Alquiler creado correctamente",
+            "rental_id": rental.rental_id
+        }), 201
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+# endpoint 7
+@app.route('/api/v1/rentals/<int:rental_id>', methods=['GET'])
+def get_rental(rental_id):
+    try:
+        rental = Rental.query.get(rental_id)
+
+        if not rental:
+            return jsonify({
+                "status": "error",
+                "message": f"Alquiler con ID {rental_id} no encontrado"
+            }), 404
+
+        return jsonify({
+            "status": "ok",
+            "rental": {
+                "rental_id": rental.rental_id,
+                "rental_date": rental.rental_date.strftime('%Y-%m-%d %H:%M:%S'),
+                "inventory_id": rental.inventory_id,
+                "customer_id": rental.customer_id,
+                "return_date": rental.return_date.strftime('%Y-%m-%d %H:%M:%S') if rental.return_date else None,
+                "staff_id": rental.staff_id,
+                "last_update": rental.last_update.strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+# endpoint 8
+@app.route('/api/v1/rentals/<int:rental_id>/return', methods=['PUT'])
+def return_rental(rental_id):
+    try:
+        rental = Rental.query.get(rental_id)
+
+        if not rental:
+            return jsonify({
+                "status": "error",
+                "message": f"Alquiler con ID {rental_id} no encontrado"
+            }), 404
+
+        if rental.return_date:
+            return jsonify({
+                "status": "error",
+                "message": "El alquiler ya fue devuelto"
+            }), 400
+
+        rental.return_date = datetime.now()
+        rental.last_update = datetime.now()
+
+        db.session.commit()
+
+        return jsonify({
+            "status": "ok",
+            "message": "Alquiler devuelto correctamente"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+@app.route('/api/v1/customers/<int:customer_id>/rentals', methods=['GET'])
+def get_customer_rentals(customer_id):
+    try:
+        rentals = Rental.query.filter_by(customer_id=customer_id).all()
+        print(f"Found {len(rentals)} rentals for customer {customer_id}")
+
+        result = []
+        for r in rentals:
+            result.append({
+                "rental_id": r.rental_id,
+                "rental_date": r.rental_date.strftime('%Y-%m-%d %H:%M:%S'),
+                "inventory_id": r.inventory_id,
+                "return_date": r.return_date.strftime('%Y-%m-%d %H:%M:%S') if r.return_date else None,
+                "staff_id": r.staff_id
+            })
+
+        return jsonify({
+            "status": "ok",
+            "count": len(result),
+            "rentals": result
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+
+# endpoint 10
+@app.route('/api/v1/rentals', methods=['GET'])
+def get_rentals():
+    try:
+        limit = request.args.get('limit', default=50, type=int)
+        offset = request.args.get('offset', default=0, type=int)
+
+        rentals = Rental.query.order_by(Rental.rental_id).offset(offset).limit(limit).all()
+
+        result = []
+        for r in rentals:
+            result.append({
+                "rental_id": r.rental_id,
+                "rental_date": r.rental_date.strftime('%Y-%m-%d %H:%M:%S'),
+                "inventory_id": r.inventory_id,
+                "customer_id": r.customer_id,
+                "return_date": r.return_date.strftime('%Y-%m-%d %H:%M:%S') if r.return_date else None,
+                "staff_id": r.staff_id
+            })
+
+        return jsonify({
+            "status": "ok",
+            "count": len(result),
+            "rentals": result
+        })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
     app.run(debug=True)
